@@ -185,10 +185,12 @@ const SPEAKING = [
 ];
 
 const MAX_ATTEMPTS = 3; // 녹음 시도 제한
+let lastError = '';
 const DUNNO = 4;        // '모르겠음' 선택값 — 오답 처리, 별도 집계
 
 /* ---------- 상태 ---------- */
-let step = -1;                 // -1: 인트로, 0~11: MCQ, 12: 스피킹 안내, 13~15: 스피킹, 16: 결과
+let step = -2;                 // -2: 인트로, -1: 참가자 정보, 0~11: MCQ, 12: 스피킹 안내, 13~15: 스피킹, 16: 결과, 17: 완료
+const participant = {name:'', email:''};
 const answers = new Array(12).fill(null);
 const recordings = [null,null,null];      // Blob
 const attempts = [0,0,0];
@@ -231,12 +233,12 @@ function updateProgress(){
 function render(){
   updateProgress();
   window.scrollTo(0,0);
-  if (step === -1) return renderIntro();
+  if (step === -2) return renderIntro();
+  if (step === -1) return renderContact();
   if (step <= 11) return renderMCQ(step);
   if (step === 12) return renderSpeakIntro();
   if (step <= 15) return renderSpeaking(step - 13);
   if (step === 16) return renderResult();
-  if (step === 17) return renderContact();
   return renderDone();
 }
 
@@ -251,7 +253,7 @@ function renderIntro(){
         <span class="chip">약 10분</span>
       </div>
     </div>`;
-  nextBtn.textContent = '테스트 시작';
+  nextBtn.textContent = '시작하기';
   nextBtn.classList.add('accent');
   nextBtn.disabled = false;
 }
@@ -428,38 +430,55 @@ function renderResult(){
   nextBtn.textContent = '스피킹 분석 신청하기';
   nextBtn.classList.add('accent');
   nextBtn.disabled = false;
-  nextBtn.onclick = ()=>{ step = 17; render(); };
+  nextBtn.onclick = ()=> submitAll(participant.name, participant.email);
 }
 
 function renderContact(){
   main.innerHTML = `
     <div class="center-block" style="justify-content:flex-start;padding-top:24px">
-      <div class="big-title">분석 결과를 받아볼<br>연락처를 남겨주세요</div>
-      <p class="desc">스피킹 답변 분석과 맞춤 학습 진단을 안내해 드립니다.</p>
+      <div class="big-title">결과를 받아볼<br>정보를 입력해 주세요</div>
+      <p class="desc">진단 결과와 스피킹 분석을 입력하신 이메일로 보내드립니다.</p>
       <div class="band" style="margin-top:20px">
         <div style="display:flex;flex-direction:column;gap:12px">
-          <input id="ctName" type="text" placeholder="이름" style="padding:15px 16px;border:1.5px solid var(--line);border-radius:12px;font-size:16px;font-family:inherit;outline-color:var(--accent)">
-          <input id="ctPhone" type="tel" placeholder="연락처 (휴대폰 번호)" style="padding:15px 16px;border:1.5px solid var(--line);border-radius:12px;font-size:16px;font-family:inherit;outline-color:var(--accent)">
+          <input id="ctName" type="text" placeholder="이름" autocomplete="name" value="${participant.name}" style="padding:15px 16px;border:1.5px solid var(--line);border-radius:12px;font-size:16px;font-family:inherit;outline-color:var(--accent)">
+          <input id="ctEmail" type="email" inputmode="email" autocapitalize="off" autocomplete="email" placeholder="이메일 주소" value="${participant.email}" style="padding:15px 16px;border:1.5px solid var(--line);border-radius:12px;font-size:16px;font-family:inherit;outline-color:var(--accent)">
         </div>
         <p style="margin-top:12px;font-size:12.5px;color:var(--ink-soft);line-height:1.5">입력하신 정보는 레벨테스트 결과 안내 및 학습 상담 목적으로만 사용됩니다.</p>
       </div>
     </div>`;
   const name = document.getElementById('ctName');
-  const phone = document.getElementById('ctPhone');
-  const check = ()=>{ nextBtn.disabled = !(name.value.trim().length >= 2 && phone.value.trim().length >= 9); };
+  const email = document.getElementById('ctEmail');
+  const valid = ()=> name.value.trim().length >= 2 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim());
+  const check = ()=>{
+    participant.name = name.value.trim();
+    participant.email = email.value.trim();
+    nextBtn.disabled = !valid();
+  };
   name.addEventListener('input', check);
-  phone.addEventListener('input', check);
-  nextBtn.textContent = '제출하기';
+  email.addEventListener('input', check);
+  nextBtn.textContent = '테스트 시작';
   nextBtn.classList.add('accent');
-  nextBtn.disabled = true;
-  nextBtn.onclick = ()=> submitAll(name.value.trim(), phone.value.trim());
+  check();
 }
 
 function renderDone(){
+  if (lastError){
+    main.innerHTML = `
+      <div class="center-block" style="justify-content:flex-start;padding-top:24px">
+        <div class="big-title">전송에 실패했습니다</div>
+        <p class="desc">답안은 브라우저에 남아 있습니다. 아래 버튼으로 다시 시도해 주세요.</p>
+        <div class="band" style="margin-top:18px"><p style="font-size:12.5px;word-break:break-all">${lastError}</p></div>
+      </div>`;
+    nextBtn.textContent = '다시 제출하기';
+    nextBtn.classList.add('accent');
+    nextBtn.disabled = false;
+    nextBtn.onclick = ()=>{ lastError=''; submitAll(participant.name, participant.email); };
+    return;
+  }
   main.innerHTML = `
     <div class="center-block">
       <div class="big-title">제출 완료</div>
-      <p class="desc">스피킹 답변 분석이 시작되었습니다. 남겨주신 연락처로 정밀 진단 결과와 함께 안내해 드리겠습니다.</p>
+      <p class="desc">스피킹 답변 분석이 시작되었습니다. 입력하신 이메일로 정밀 진단 결과와 함께 안내해 드리겠습니다.</p>
     </div>`;
   nextBtn.textContent = '완료';
   nextBtn.classList.remove('accent');
@@ -491,7 +510,7 @@ function blobToBase64(blob){
   });
 }
 
-async function submitAll(name, phone){
+async function submitAll(name, email){
   nextBtn.disabled = true;
   nextBtn.textContent = '제출 중…';
   const score = answers.reduce((s,a,i)=> s + (a === MCQ[i][2] ? 1 : 0), 0);
@@ -502,7 +521,7 @@ async function submitAll(name, phone){
       audioB64.push(blob ? await blobToBase64(blob) : null);
     }
     const payload = {
-      name, phone, score,
+      name, email, score,
       answers: answers,
       weakAreas: getWeakAreas(),
       dunnoCount: answers.filter(a=>a===DUNNO).length,
@@ -511,25 +530,30 @@ async function submitAll(name, phone){
       submittedAt: new Date().toISOString()
     };
     if (WEBHOOK_URL.startsWith('http')){
-      await fetch(WEBHOOK_URL, {
+      const res = await fetch(WEBHOOK_URL, {
         method: 'POST',
         headers: {'Content-Type':'text/plain;charset=utf-8'}, // preflight 회피용 — Apps Script 표준 패턴
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        redirect: 'follow'
       });
+      const txt = await res.text();
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      if (txt.indexOf('"ok":true') === -1) throw new Error('서버 응답: ' + txt.slice(0,120));
     } else {
       console.log('WEBHOOK_URL 미설정 — 제출 데이터:', payload);
     }
-    step = 18;
+    step = 17;
     render();
   }catch(e){
-    nextBtn.textContent = '제출 실패 — 다시 시도';
-    nextBtn.disabled = false;
+    lastError = String(e && e.message ? e.message : e);
+    step = 17;
+    render();
   }
 }
 
 /* ---------- 다음 버튼 ---------- */
 nextBtn.addEventListener('click',()=>{
-  if (step >= 16) return; // 연락처 화면부터는 개별 onclick이 처리
+  if (step >= 16) return; // 결과 화면부터는 개별 onclick이 처리
   step++;
   nextBtn.onclick = null;
   render();
